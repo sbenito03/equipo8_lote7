@@ -33,14 +33,20 @@ sumaNA <- sum(is.na(data))
 sumaCero <- sum(data == 0)
 total_celdas <- nrow(data) * (ncol(data) -1)   # Sin la columna labels
 print(paste0("El dataset contiene ", sumaNA, " valores NA y ", sumaCero, " valores 0, de un total de ", total_celdas, " valores."))
+# "El dataset contiene 0 valores NA y 32503 valores 0, de un total de 400500 valores."
 
-
-## Depurar los valores 0
-data_zeros <- data == 0   # Convertimos valores 0 a TRUE, resto a FALSE
-# Primero, obtenemos la cantidad de 0 de cada columna
-colszero <- colSums(data_zeros)   # Sumamos los valores TRUE de cada columna (los valores 0)
+## Contamos los valores 0 de cada columna
+# Generamos nuevo dataframe, convirtiendo los valores 0 a TRUE y el resto a FALSE
+data_zeros <- data == 0   
+# Obtenemos la cantidad de 0 de cada columna, sumando los valores TRUE de cada columna (los valores 0)
+colszero <- colSums(data_zeros)
 colszero_ordenado <- sort(colszero, decreasing = TRUE)   # Ordenamos de mayor a menor para evaluar mejor
-colszero_ordenado   # Mostramos el resultado
+colszero_ordenado   # Resultado
+# Lo guardamos en un archivo txt (para lectura posterior)
+output <- data.frame(Gen = names(colszero_ordenado), Ceros = as.numeric(colszero_ordenado))
+write.table(output, file = "ceros_ordenado.txt", row.names = FALSE, quote = FALSE, sep = "\t\t")
+# Nota: el archivo generado se puede encontrar en la carpeta results
+
 # Lo mismo para las filas
 rowszero <- rowSums(data_zeros)   # Sumamos los valores TRUE de cada columna (los valores 0)
 rowszero_ordenado <- sort(rowszero, decreasing = TRUE)   # Ordenamos de mayor a menor para evaluar mejor
@@ -48,12 +54,10 @@ rowszero_ordenado   # Mostramos el resultado
 
 
 
-
 # HISTOGRAMAS: Visualizacion de los datos de cada gen
 # En bloques de 20 genes; histogramas en grid de 4 filas x 5 columnas
 # Siendo 500 genes, son 25 grupos (i) de 20 genes
 # IMPORTANTE: los genes quedan ordenados de mayor a menor valores cero
-
 for (i in 0:24) {   
   # Cada valor de i es un grupo de 20 genes
   
@@ -66,7 +70,6 @@ for (i in 0:24) {
       geom_histogram(binwidth = 1, fill = "steelblue", color = "black", alpha = 0.7) +
       labs(title = gen, x = "Expresión", y = "Observaciones") +
       theme_minimal()
-    
     # Almacenar el histograma en la lista
     plots[[gen]] <- p
   }
@@ -76,7 +79,7 @@ for (i in 0:24) {
   file_name <- paste0("histogramas_genes_porordenceros_", (20*i+1), "-", (20*i+20),".png")
   ggsave(file_name, plot = grid_plot, width = 12, height = 8, dpi = 300)
 }
-
+# Nota: los histogramas generados se pueden encontrar en la carpeta results
 
 
 # DISCUSION SOBRE LOS CEROS:
