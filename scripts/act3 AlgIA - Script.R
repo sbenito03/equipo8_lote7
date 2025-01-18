@@ -30,6 +30,7 @@ sumaNA <- sum(is.na(data))
 sumaCero <- sum(data == 0)
 total_celdas <- nrow(data) * (ncol(data) -1)   # Sin la columna labels
 print(paste0("El dataset contiene ", sumaNA, " valores NA y ", sumaCero, " valores 0, de un total de ", total_celdas, " valores."))
+# "El dataset contiene 0 valores NA y 32503 valores 0, de un total de 400500 valores."
 
 ## Depurar los valores 0
 
