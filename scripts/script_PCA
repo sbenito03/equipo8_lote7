@@ -1,0 +1,87 @@
+#Adición de datos descriptivos para el análisis de componenentes principales.
+
+Nota: Este sódigo es adicional al principal, se ha hecho con un cribado de genes respecto al número de valores 0 (eliminados aquellos con más de 700)
+
+rm(list =ls()) 
+path <- ("C:/Users/ecarb/OneDrive/Escritorio/Máster Bioinformática/Algoritmos e IA/Actividad 3/") 
+setwd (path)
+
+#Librerías necesarias para la actividad
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(stats)
+library (gridExtra)
+library(factoextra) #Simplifica la visualización de los resultados
+
+#Preparación y depuración de los datos
+
+clases <- read.csv("classes.csv", sep = ";", header = FALSE)
+colnames(clases) <- c("sample" , "class")
+df <- read.csv("gene_expression.csv", sep = ";",header = FALSE,  col.names = read_lines("column_names.txt")) #df a analizar
+df$clases <- clases[[2]]
+
+sumaNA <- sum(is.na(df))
+suma0 <- sum(df == 0)
+
+clases$class <- as.factor(clases$class)
+
+
+#Conteo de valores 0 de cada columna (gen) para seleccionar candidatos a eliminar
+data_zeros <- df == 0
+colszero <- colSums(data_zeros)
+colszero_ordenado <- sort(colszero, decreasing = TRUE)   # Ordenamos de mayor a menor para evaluar mejor
+colszero_ordenado 
+
+# Lo guardamos en un archivo txt (para lectura posterior)
+output <- data.frame(Gen = names(colszero_ordenado), Ceros = as.numeric(colszero_ordenado))
+write.table(output, file = "ceros_ordenado.txt", row.names = FALSE, quote = FALSE, sep = "\t\t")
+
+genes_zeros <- c()
+for (i in seq_len(nrow(output))){
+  if (output$Ceros[i] >= 700){
+    genes_zeros[i] <- output$Gen[i]
+  }
+}
+
+df_final <- df[, !(colnames(df) %in% genes_zeros)]
+data <- data.frame(sapply(df_final[1:475], as.numeric)) #dataset final, únicamente valores numéricos
+
+
+
+#--------------------------------- Métodos de aprendizaje no supervisado ---------------------------------
+
+#------- Reducción de dimensionalidad
+
+#Primer método PCA
+
+
+pca_results <- prcomp(scale(data), center = TRUE, scale = TRUE)
+pca_df <- data.frame(pca_results$x)
+
+varianzas <- pca_results$sdev^2
+tot_varianza <- sum(varianzas)
+varianza_explicada <- varianzas/tot_varianza
+varianza_acumulada <- cumsum(varianza_explicada)
+
+componentes <- min(which(varianza_acumulada > 0.9))
+
+#Representación de los componentes principales
+ggplot(pca_df, aes(x=PC1, y=PC2, color=clases$class)) +
+  geom_point(size=3) +
+  scale_color_manual(values=c('red', 'blue', 'green', 'orange', 'purple')) +
+  labs(title="PCA expresión de genes Act3_AlgIA", x= paste0(paste("PC1",round(varianza_explicada[1]*100, 2)),'%'), y= paste0(paste("PC2",round(varianza_explicada[2]*100, 2)),'%'), color='Grupo') +
+  theme_light() +
+  theme(plot.title = element_text( size = 16, face = "bold" ),
+        axis.title.x = element_text(size = 12), 
+        axis.title.y = element_text(size = 12))
+
+eigenvalues <- get_eigenvalue(pca_results)
+eigenvalues #Nos muestra la importancia de cada componente con respecto a la varianza
+
+fviz_eig(pca_results, addlabels = TRUE, ylim = c(0,50)) #Grafica con la importancia de los componentes
+
+var <- get_pca_var(pca_results)
+var 
+fviz_pca_var(pca_results, col.var = "black") #Nos muestra un grafico donde nos asocia cada variable con los componentes
