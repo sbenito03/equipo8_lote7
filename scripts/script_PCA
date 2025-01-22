@@ -1,0 +1,124 @@
+#Adición de datos descriptivos para el análisis de componenentes principales. Muchas representaciones no son buenas para la interpretación debido a la cantidad de datos presentes en la base de datos. 
+#Seleccionar aquellas gráficas que sean buenas para la interpretación por parte del investigador
+
+rm(list =ls()) 
+path <- ("C:/Users/ecarb/OneDrive/Escritorio/Máster Bioinformática/Algoritmos e IA/Actividad 3/") 
+setwd (path)
+
+#Librerías necesarias para la actividad
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(stats)
+library (gridExtra)
+library(factoextra) #Simplifica la visualización de los resultados
+
+#Preparación y depuración de los datos
+
+clases <- read.csv("classes.csv", sep = ";", header = FALSE)
+colnames(clases) <- c("sample" , "class")
+df <- read.csv("gene_expression.csv", sep = ";",header = FALSE,  col.names = read_lines("column_names.txt")) #df a analizar
+df$clases <- clases[[2]]
+
+sumaNA <- sum(is.na(df))
+suma0 <- sum(df == 0)
+
+clases$class <- as.factor(clases$class)
+
+
+#Conteo de valores 0 de cada columna (gen) para seleccionar candidatos a eliminar
+data_zeros <- df == 0
+colszero <- colSums(data_zeros)
+colszero_ordenado <- sort(colszero, decreasing = TRUE)   # Ordenamos de mayor a menor para evaluar mejor
+colszero_ordenado 
+
+# Lo guardamos en un archivo txt (para lectura posterior)
+output <- data.frame(Gen = names(colszero_ordenado), Ceros = as.numeric(colszero_ordenado))
+write.table(output, file = "ceros_ordenado.txt", row.names = FALSE, quote = FALSE, sep = "\t\t")
+
+genes_zeros <- c()
+for (i in seq_len(nrow(output))){
+  if (output$Ceros[i] >= 700){
+    genes_zeros[i] <- output$Gen[i]
+  }
+}
+
+df_final <- df[, !(colnames(df) %in% genes_zeros)]
+data <- data.frame(sapply(df_final[1:475], as.numeric)) #dataset final, únicamente valores numéricos
+
+
+
+#--------------------------------- Métodos de aprendizaje no supervisado ---------------------------------
+
+#------- Reducción de dimensionalidad
+
+#Primer método PCA
+
+
+pca_results <- prcomp(scale(data), center = TRUE, scale = TRUE)
+pca_df <- data.frame(pca_results$x)
+
+varianzas <- pca_results$sdev^2
+tot_varianza <- sum(varianzas)
+varianza_explicada <- varianzas/tot_varianza
+varianza_acumulada <- cumsum(varianza_explicada)
+
+componentes <- min(which(varianza_acumulada > 0.9))
+
+#Representación de los componentes principales
+ggplot(pca_df, aes(x=PC1, y=PC2, color=clases$class)) +
+  geom_point(size=3) +
+  scale_color_manual(values=c('red', 'blue', 'green', 'orange', 'purple')) +
+  labs(title="PCA expresión de genes Act3_AlgIA", x= paste0(paste("PC1",round(varianza_explicada[1]*100, 2)),'%'), y= paste0(paste("PC2",round(varianza_explicada[2]*100, 2)),'%'), color='Grupo') +
+  theme_light() +
+  theme(plot.title = element_text( size = 16, face = "bold" ),
+        axis.title.x = element_text(size = 12), 
+        axis.title.y = element_text(size = 12))
+
+eigenvalues <- get_eigenvalue(pca_results)
+eigenvalues #Nos muestra la importancia de cada componente con respecto a la varianza
+
+fviz_eig(pca_results, addlabels = TRUE, ylim = c(0,50)) #Grafica con la importancia de los componentes
+
+var <- get_pca_var(pca_results)
+var 
+fviz_pca_var(pca_results, col.var = "black") #Nos muestra un grafico donde nos asocia cada variable con los componentes (poco intuitivo también)
+
+#Representamos con un gradiende de colores con cos2, que no indica la importancia de las VARIABLES en cada componente, en este caso PC1 y PC2
+fviz_pca_var(pca_results, col.var = "cos2",
+             gradient.cols = c("blue", "white", "red"),
+             legend.title = "cos2",
+             repel = TRUE)
+#Esta gráfica sale muy compacta debido a la cantidad de variables (confusa para interpretar)
+
+#Visualizar el gráfico de correlación variable (muestra las relaciones entre todas las variables) por grupos o clúster
+kmeans <- kmeans(data, centers = 3)
+grupo <- as.factor(kmeans$cluster)
+
+fviz_pca_var(pca_results, col.var = "cluster",
+            gradient.cols = c("blue", "white", "red"),
+            legend.title = "Cluster")
+
+#Visualizar la representación de cada variable de las dimensiones 1 y 2
+fviz_cos2(pca_results, choice = "var", axes = 1:2, top = 15) #Poco intuitiva, por eso se representan las 15 más respresentativas. A mayor nivel mayor representación de la variale en los PC
+
+#Visualizar la importancia de cada variable por dimensiones
+fviz_contrib(pca_results, choice = "var", axes = 2, top = 15)
+
+#Representamos con un gradiende de colores con cos2, que no indica la importancia de las INDIVIDUOS en cada componente, en este caso PC1 y PC2
+fviz_pca_ind(pca_results, col.var = "cos2",
+             gradient.cols = c("blue", "white", "red"),
+             repel = TRUE)
+
+#Al igual que las variables, también es posible colorear a los individuos por sus valores cos2
+fviz_pca_ind(pca_results, pointsize = "cos2",
+             pointshape = 21,
+             fill = "yellow",
+             repel = TRUE)
+
+#Representación Biplot (representación simultánea de las variables y los individuos)
+fviz_pca_biplot(pca_results, repel = TRUE,
+                col.var = "red", # Variables color
+                col.ind = "blue" # Individuals color
+                )
