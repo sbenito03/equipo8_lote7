@@ -1,6 +1,5 @@
-#Adición de datos descriptivos para el análisis de componenentes principales.
-
-Nota: Este sódigo es adicional al principal, se ha hecho con un cribado de genes respecto al número de valores 0 (eliminados aquellos con más de 700)
+#Adición de datos descriptivos para el análisis de componenentes principales. Muchas representaciones no son buenas para la interpretación debido a la cantidad de datos presentes en la base de datos. 
+#Seleccionar aquellas gráficas que sean buenas para la interpretación por parte del investigador
 
 rm(list =ls()) 
 path <- ("C:/Users/ecarb/OneDrive/Escritorio/Máster Bioinformática/Algoritmos e IA/Actividad 3/") 
@@ -84,4 +83,42 @@ fviz_eig(pca_results, addlabels = TRUE, ylim = c(0,50)) #Grafica con la importan
 
 var <- get_pca_var(pca_results)
 var 
-fviz_pca_var(pca_results, col.var = "black") #Nos muestra un grafico donde nos asocia cada variable con los componentes
+fviz_pca_var(pca_results, col.var = "black") #Nos muestra un grafico donde nos asocia cada variable con los componentes (poco intuitivo también)
+
+#Representamos con un gradiende de colores con cos2, que no indica la importancia de las VARIABLES en cada componente, en este caso PC1 y PC2
+fviz_pca_var(pca_results, col.var = "cos2",
+             gradient.cols = c("blue", "white", "red"),
+             legend.title = "cos2",
+             repel = TRUE)
+#Esta gráfica sale muy compacta debido a la cantidad de variables (confusa para interpretar)
+
+#Visualizar el gráfico de correlación variable (muestra las relaciones entre todas las variables) por grupos o clúster
+kmeans <- kmeans(data, centers = 3)
+grupo <- as.factor(kmeans$cluster)
+
+fviz_pca_var(pca_results, col.var = "cluster",
+            gradient.cols = c("blue", "white", "red"),
+            legend.title = "Cluster")
+
+#Visualizar la representación de cada variable de las dimensiones 1 y 2
+fviz_cos2(pca_results, choice = "var", axes = 1:2, top = 15) #Poco intuitiva, por eso se representan las 15 más respresentativas. A mayor nivel mayor representación de la variale en los PC
+
+#Visualizar la importancia de cada variable por dimensiones
+fviz_contrib(pca_results, choice = "var", axes = 2, top = 15)
+
+#Representamos con un gradiende de colores con cos2, que no indica la importancia de las INDIVIDUOS en cada componente, en este caso PC1 y PC2
+fviz_pca_ind(pca_results, col.var = "cos2",
+             gradient.cols = c("blue", "white", "red"),
+             repel = TRUE)
+
+#Al igual que las variables, también es posible colorear a los individuos por sus valores cos2
+fviz_pca_ind(pca_results, pointsize = "cos2",
+             pointshape = 21,
+             fill = "yellow",
+             repel = TRUE)
+
+#Representación Biplot (representación simultánea de las variables y los individuos)
+fviz_pca_biplot(pca_results, repel = TRUE,
+                col.var = "red", # Variables color
+                col.ind = "blue" # Individuals color
+                )
