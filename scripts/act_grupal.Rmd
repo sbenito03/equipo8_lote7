@@ -87,7 +87,7 @@ plot_intro(gene_expression)
 ### 2.1.1. PCA
 
 ```{r}
-# Guardado en un dataframe de los 500 primeros genes 
+# Guardamos en un dataframe los genes 
 data <- data.frame(sapply(gene_expression, as.numeric))
 
 # Calculo de componentes principales con la funcion prcomp
