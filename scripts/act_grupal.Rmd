@@ -1,0 +1,454 @@
+---
+title: Análisis de un conjunto de datos de origen biológico mediante técnicas de machine
+  learning supervisadas y no supervisadas
+author: "Equipo 8 Lote 7"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, echo=FALSE}
+rm(list=ls())
+path <- "~/Documents/UNIR/Algoritmos e Inteligencia Artificial/Actividad3_(Taller grupal)"
+setwd(path)
+```
+
+# 1. Procesado de datos
+
+```{r}
+# Carga de librerías
+library(DataExplorer)
+library(stats)
+library(ggplot2)
+library(Rtsne)
+library(factoextra)
+library(caret)
+library(cluster)
+library(summarytools)
+library(gridExtra)
+library(randomForest)
+library(knitr)
+library(kableExtra)
+library(pROC)
+```
+
+## 1.1. Carga de los datasets
+
+```{r}
+# Cargamos el archivo Classes
+classes <- read.csv("Data/classes.csv", header = FALSE, stringsAsFactors = FALSE, sep = ";")
+
+# Cargamos el archivo column_names
+column_names <- readLines("Data/column_names.txt")
+
+# Cargamos el archivo gene_expression
+gene_expression <- read.csv("Data/gene_expression.csv", header = FALSE, stringsAsFactors = FALSE, sep = ";")
+
+# Asignamos nombres de columnas al dataset de expresión génica
+colnames(gene_expression) <- column_names
+
+# Sumamos los datos por columnas
+sumas <- colSums(gene_expression) 
+columnascero <- names(sumas[sumas==0]) # vemos cuantas sumas son == 0
+columnascero
+
+# Reemplazamos el dataset sin esas columnas
+gene_expression <- gene_expression[, !names(gene_expression) %in% columnascero] 
+
+# Añadimos las etiquetas de las clases al dataset de expresión génica
+gene_expression$Class <- classes$V2
+
+# Convertimos la columna 'Class' en un factor para garantizar el mapeo correcto
+gene_expression$Class <- as.factor(gene_expression$Class)
+
+head(gene_expression)
+```
+
+## 1.2. Comprobación de valores missing
+
+```{r}
+# Visualizamos missing values
+sum(is.na(gene_expression))
+any(is.na(gene_expression))
+```
+
+## 1.3. Exploración de los datos
+
+Dado que tenemos 500 variables numéricas, un *summary()* completo puede ser poco práctico porque genera demasiada información para analizar visualmente.
+
+```{r}
+#gráfico para observar la distribución de variables y los casos missing por columnas, observaciones y filas
+plot_intro(gene_expression)
+```
+
+# 2. Métodos de aprendizaje no supervisado
+
+## 2.1. Métodos de reducción de la dimensionalidad
+
+### 2.1.1. PCA
+
+```{r}
+# Guardamos en un dataframe los genes 
+data <- data.frame(sapply(gene_expression, as.numeric))
+
+# Calculo de componentes principales con la funcion prcomp
+pca.results <- prcomp(data, center=TRUE, scale=FALSE)
+
+# Resultado de las componentes principales
+pca.df <- data.frame(pca.results$x)
+
+# Varianza (cuadrado de la desviacion tipica)
+varianzas <- pca.results$sdev^2
+
+# Total de la varianza de los datos
+total.varianza <- sum(varianzas)
+
+# Varianza explicada por cada componente principal
+varianza.explicada <- varianzas/total.varianza
+
+# Calculamos la varianza acumulada 
+varianza.acumulada <- cumsum(varianza.explicada)
+
+# Tomamos el numero de componentes principales que explican el 90% de la varianza
+n.pc <- min(which(varianza.acumulada > 0.9))
+
+# Etiquetas de los ejes del gráfico
+x_label <- paste0(paste('PC1', round(varianza.explicada[1] * 100, 2)), '%')
+y_label <- paste0(paste('PC2', round(varianza.explicada[2] * 100, 2)), '%')
+
+# Representación gráfica de las primeras dos componentes principales respecto a los datos
+ggplot(pca.df, aes(x=PC1, y=PC2, color=gene_expression$Class)) +
+  geom_point(size=3) +
+  scale_color_manual(values=c('red', 'blue', 'green', 'orange', 'purple')) +
+  labs(title='PCA Breast Cancer', x=x_label, y=y_label, color='Grupo') +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color="gray90"), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "gray95"), plot.title = element_text(hjust = 0.5))
+```
+
+### 2.1.2. t-SNE
+
+```{r}
+# Algoritmo
+tsne <- Rtsne(X=data, dims = 2)
+tsne_result <- data.frame(tsne$Y)
+
+# Graficamos
+ggplot(tsne_result, aes(x = X1, y = X2, color = gene_expression$Class)) +
+geom_point(size = 3) +
+scale_color_manual(values = c("red", "blue", "green", "orange", "purple")) +
+labs(title = "Método t-SNE Breast Cancer", x = "PC1", y = "PC2", color = "Grupo") +
+theme_classic() +
+theme(panel.grid.major = element_line(color = "gray90"), panel.grid.minor = element_blank(),
+panel.background = element_rect(fill = "gray95"), plot.title=element_text(hjust=0.5))
+```
+
+## 2.2. Métodos de clusterización
+
+### 2.2.1. K-means
+
+```{r}
+# Normalización z-score
+df_genes_scale <- scale(data)  
+```
+
+```{r}
+# n optimo de clusters
+fviz_nbclust(df_genes_scale, kmeans, method = "wss") +
+  ggtitle("Optimal number of clusters", subtitle = "") +
+  theme_classic()
+```
+
+```{r}
+# n optimo de clusters mediante silhouette
+fviz_nbclust(df_genes_scale, pam, method = "silhouette")+
+theme_classic()
+```
+
+```{r}
+kmeans.result_5 <- kmeans(df_genes_scale, centers = 5, iter.max = 100, nstart = 25)
+fviz_cluster(kmeans.result_5, df_genes_scale, xlab = '', ylab = '') +
+  ggtitle("Cluster plot, centers = 5", subtitle = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# calculate silhouette
+sil_5 <- silhouette(kmeans.result_5$cluster, dist(data))
+
+# plot silhouette
+fviz_silhouette(sil_5)
+```
+
+```{r}
+kmeans.result_6 <- kmeans(df_genes_scale, centers = 6, iter.max = 100, nstart = 25)
+fviz_cluster(kmeans.result_6, df_genes_scale, xlab = '', ylab = '') +
+  ggtitle("Cluster plot, centers = 6", subtitle = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# calculate silhouette
+sil_6 <- silhouette(kmeans.result_6$cluster, dist(data))
+
+# plot silhouette
+fviz_silhouette(sil_6)
+```
+
+```{r}
+kmeans.result_2 <- kmeans(df_genes_scale, centers = 2, iter.max = 100, nstart = 25)
+fviz_cluster(kmeans.result_2, df_genes_scale, xlab = '', ylab = '') +
+  ggtitle("Cluster plot, centers = 2", subtitle = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# calculate silhouette
+sil_2 <- silhouette(kmeans.result_2$cluster, dist(data))
+
+# plot silhouette
+fviz_silhouette(sil_2)
+```
+
+### 2.2.2. Clustering jerarquico divisivo
+
+```{r}
+# Implementación del clustering divisivo
+diana_euclidean <- diana(df_genes_scale, metric = "euclidean", stand = FALSE) 
+diana_manhattan <- diana(df_genes_scale, metric = "manhattan", stand = FALSE) 
+
+colors <- rainbow(5)
+clust_diana_euclidean <- fviz_dend(diana_euclidean, 
+                                   cex = 0.5, 
+                                   k = 5,
+                                   palette = colors, 
+                                   main = 'Euclidean',
+                                   xlab = "Índice de Observaciones",
+                                   ylab = "Distancia") + 
+  theme_classic()
+
+
+colors <- rainbow(5)
+clust_diana_manhattan <- fviz_dend(diana_manhattan, 
+                                   cex = 0.5, 
+                                   k = 5,
+                                   palette = colors, 
+                                   main = 'Manhattan',
+                                   xlab = "Índice de Observaciones",
+                                   ylab = "Distancia") + 
+  theme_classic()
+
+
+grid.arrange(clust_diana_euclidean, clust_diana_manhattan, nrow = 2)
+```
+
+# 3. Métodos de aprendizaje supervisado
+
+## 3.1. Preparamos el conjunto de datos
+
+```{r}
+# Comprobamos que la variable objetivo sea categórica
+str(gene_expression$Class)
+levels(gene_expression$Class)
+```
+
+```{r}
+# Dividimos el conjunto de datos en conjuntos de entrenamiento y prueba
+set.seed(1995)
+trainIndex <- createDataPartition(gene_expression$Class, p = 0.8, list = FALSE)
+trainData <- gene_expression[trainIndex,]
+testData <- gene_expression[-trainIndex,]
+```
+
+## 3.2. k-NN
+
+```{r}
+# Creamos un modelo de k-NN utilizando el paquete caret
+knnModel <- train(Class ~ .,
+                  data = trainData,
+                  method = "knn",
+                  trControl = trainControl(method = "cv", number = 10),
+                  preProcess = c("center", "scale"),
+                  tuneLength = 30)
+knnModel
+
+plot(knnModel)
+
+# Realizar predicciones en el conjunto de prueba utilizando el modelo entrenado
+predictions <- predict(knnModel, newdata = testData )
+predictions
+
+# Obtener probabilidades
+probabilities_knn <- predict(knnModel, newdata = testData, type = "prob")
+probabilities_knn
+```
+
+### 3.2.1. Métricas del modelo k-NN
+
+```{r}
+# Evaluamos la precisión del modelo utilizando la matriz de confusión
+cm <- confusionMatrix(predictions, testData$Class)
+cm
+```
+
+```{r}
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- cm$byClass[, "Pos Pred Value"]  
+recall <- cm$byClass[, "Sensitivity"]  
+especificidad <- cm$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+```
+
+```{r}
+# Creamos un data frame con las métricas
+resultados <- data.frame(
+  Precisión = round(precision, 4),   
+  Recall = round(recall, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(resultados, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+
+```
+
+## 3.3. SVM kernel
+
+```{r}
+# Crear un modelo de SVM tipo kernel utilizando el paquete caret
+svmModelKernel <- train(Class ~.,
+                        data = trainData,
+                        method = "svmRadial",
+                        trControl = trainControl(method = "cv", number = 10),
+                        preProcess = c("center", "scale"),
+                        tuneLength = 10,
+                        prob.model = TRUE) 
+svmModelKernel
+
+plot(svmModelKernel)
+
+
+# Realizar predicciones en el conjunto de prueba utilizando el modelo entrenado
+predictions <- predict(svmModelKernel, newdata = testData )
+predictions
+
+# SVM kernel
+probabilities_svm_kernel <- predict(svmModelKernel, newdata = testData, type = "prob")
+probabilities_svm_kernel
+```
+
+### 3.3.1. Métricas del modelo SVM
+
+```{r}
+# Evaluamos la precisión del modelo utilizando la matriz de confusión
+cm_SVM <- confusionMatrix(predictions, testData$Class)
+cm_SVM
+```
+
+```{r}
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- cm_SVM$byClass[, "Pos Pred Value"]  
+recall <- cm_SVM$byClass[, "Sensitivity"]  
+especificidad <- cm_SVM$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * recall) / (precision + recall)
+```
+
+```{r}
+# Creamos un data frame con las métricas
+resultados <- data.frame(
+  Precisión = round(precision, 4),   
+  Recall = round(recall, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(resultados, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+
+```
+
+## 3.4. Modelo Random Forest
+
+```{r, fig.width=10, fig.height=8}
+# Crear un modelo de RF utilizando el paquete caret
+rfModel <- train(Class ~ .,
+                 data = trainData,
+                 method = "rf",
+                 trControl = trainControl(method = "cv", number = 10),
+                 preProcess = c("center", "scale"),
+                 tuneLength = 15)
+rfModel
+
+plot(rfModel)
+varImp(rfModel)
+varImpPlot(rfModel$finalModel)
+
+# Realizar predicciones en el conjunto de prueba utilizando el modelo entrenado
+predictions <- predict(rfModel, newdata = testData )
+predictions
+
+# Obtener probabilidades
+probabilities_rf <- predict(rfModel, newdata = testData, type = "prob")
+probabilities_rf
+```
+
+### 3.4.1. Métricas del modelo Random Forest
+
+```{r}
+# Evaluamos la precisión del modelo utilizando la matriz de confusión
+cm_rf <- confusionMatrix(predictions, testData$Class)
+cm_rf
+```
+
+```{r}
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- cm_rf$byClass[, "Pos Pred Value"]  
+recall <- cm_rf$byClass[, "Sensitivity"]  
+especificidad <- cm_rf$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * recall) / (precision + recall)
+```
+
+```{r}
+# Creamos un data frame con las métricas
+resultados <- data.frame(
+  Precisión = round(precision, 4),   
+  Recall = round(recall, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(resultados, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+## 
+
+## 3.5. Curvas ROC
+
+```{r}
+#### ---- Curvas ROC ----
+roc_knn <- multiclass.roc(testData$Class, probabilities_knn) 
+auc_knn <- auc(roc_knn)
+cat("AUC k-NN:", auc_knn, "\n")
+
+roc_svm_kernel <- multiclass.roc(testData$Class, probabilities_svm_kernel)
+auc_svm_kernel <- auc(roc_svm_kernel)
+cat("AUC SVM Kernel:", auc_svm_kernel, "\n")
+
+roc_rf <- multiclass.roc(testData$Class, probabilities_rf)
+auc_rf <- auc(roc_rf)
+cat("AUC RF:", auc_rf, "\n")
+```
