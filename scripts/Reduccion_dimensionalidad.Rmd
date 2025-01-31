@@ -59,7 +59,7 @@ gene_expression$Class <- classes$V2
 # Convertimos la columna 'Class' en un factor para garantizar el mapeo correcto
 gene_expression$Class <- as.factor(gene_expression$Class)
 
-head(gene_expression)
+#head(gene_expression)
 ```
 
 ## 1.2. Comprobación de valores missing
@@ -154,9 +154,9 @@ fviz_contrib(pca.results, choice = "var", axes = 1:12, top = 15)
 
 ```
 
-Mediante estas dos gráficas podemos conocer más sobre la reoresentación de las variables en los componentes principales.
+Mediante estas dos gráficas podemos conocer más sobre la representación de las variables en los componentes principales.
 
-- En la primera gráfica, se representa la calidad de representación de las variables en los componentes principales mediante cos2. Hya que tener en cuenta que, a mayor calidad, mayor representación en el componente. De esta manera, se observa como las variables "ZC3H12D" y "RUFY1" están muy bien representadas en los componentes.
+- En la primera gráfica, se representa la calidad de representación de las variables en los componentes principales mediante cos2. Hay que tener en cuenta que, a mayor calidad, mayor representación en el componente. De esta manera, se observa como las variables "ZC3H12D" y "RUFY1" están muy bien representadas en los componentes.
 
 - En la segunda gráfica, se representa la contribución de las variables en los componentes principales. Al igual que antes, se observa como las variables "ZC3H12D" y "RUFY1" tienen un gran peso en los componentes.
 
@@ -165,7 +165,7 @@ Mediante estas dos gráficas podemos conocer más sobre la reoresentación de la
 El t-SNE es una técnica de reducción de dimensionalidad no lineal usada para la visualización de datos. Se destaca por conservar la localidad de los datos, de manera que es muy eficiente a la hora de identificar la estructura de los datos.
 
 
-```{r t-SNE, warning=FALSE, message=FALSE}
+```{r t-SNE, warning=FALSE, message=FALSE, echo=FALSE}
 # Algoritmo
 set.seed(1995)
 tsne <- Rtsne(X=data, dims = 2)
