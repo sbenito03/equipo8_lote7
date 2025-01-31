@@ -123,6 +123,16 @@ ggplot(pca.df, aes(x=PC1, y=PC2, color=gene_expression$Class)) +
   theme_classic() +
   theme(panel.grid.major = element_line(color="gray90"), panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = "gray95"), plot.title = element_text(hjust = 0.5))
+
+# Grafica con la importancia de los componentes
+fviz_eig(pca.results, addlabels = TRUE, ylim = c(0,50)) 
+
+# Visualizar la calidad de cada variable de las dimensiones 1 y 2
+fviz_cos2(pca.results, choice = "var", axes = 1:2, top = 15)
+
+# Visualizar la contribución de cada variable por dimensiones 1 y 2
+fviz_contrib(pca.results, choice = "var", axes = 1:2, top = 15)
+
 ```
 
 ### 2.1.2. t-SNE
