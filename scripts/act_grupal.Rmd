@@ -462,3 +462,27 @@ roc_rf <- multiclass.roc(testData$Class, probabilities_rf)
 auc_rf <- auc(roc_rf)
 cat("AUC RF:", auc_rf, "\n")
 ```
+
+# 4. Preguntas sobre las actividades
+
+## 4.4. De estas cuatro opciones, ¿qué tipo de arquitectura de *deep learning* sería la más adecuada para procesar datos de expresión génica? Razonad vuestra respuesta.
+
+**a) Red de perceptrones *(multiperceptron layers).***
+
+**b) Redes convolucionales.**
+
+**c) Redes recurrentes.**
+
+**d) Redes de grafos.**
+
+La opción más adecuada para procesar datos de expresión génica sería **Redes de grafos.** Los datos de expresión génica a menudo representan interacciones complejas entre genes, proteínas y otras moléculas biológicas, que pueden modelarse de manera natural como un grafo. En un grafo, los nodos pueden representar genes o proteínas, y las aristas pueden representar interacciones o relaciones funcionales entre ellos. Las redes de grafos (Graph Neural Networks, GNNs) están diseñadas específicamente para trabajar con este tipo de datos estructurados, permitiendo capturar dependencias y relaciones no lineales entre los elementos del grafo.
+
+¿Porqué las otras opciones no serían las más adecuadas?
+
+-   **Red de perceptrones (multiperceptron layers):** aunque las redes de perceptrones pueden manejar datos tabulares, no están diseñadas para capturar las relaciones complejas y estructuradas que suelen estar presentes en los datos de expresión génica.
+
+-   **Redes convolucionales:** las redes convolucionales son ideales para datos con estructura espacial, como imágenes, pero no son las más adecuadas para datos de expresión génica, que no tienen una estructura espacial inherente.
+
+-   **Redes recurrentes:** Las redes recurrentes son útiles para datos secuenciales, como series temporales o texto. A menos que los datos de expresión génica tengan una componente temporal clara, las redes recurrentes no serían la mejor opción.
+
+Por lo tanto, **las redes de grafos** son la arquitectura más adecuada para procesar datos de expresión génica, ya que pueden modelar eficazmente las relaciones complejas y las interacciones entre genes y otras moléculas biológicas.
