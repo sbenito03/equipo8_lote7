@@ -1,0 +1,247 @@
+---
+title: "Reduccion_dimensionalidad"
+author: "Equipo8_lote7"
+date: "2025-01-31"
+output: html_document
+---
+
+```{r inicio, echo=FALSE, warning=FALSE, message=FALSE}
+rm(list=ls())
+path <- "C:/Users/ecarb/OneDrive/Escritorio/Máster Bioinformática/Algoritmos e IA/Actividad 3/"
+setwd(path)
+```
+
+# 1. Procesado de datos
+
+```{r library,echo=FALSE, warning=FALSE, message=FALSE}
+# Carga de librerías
+library(DataExplorer)
+library(stats)
+library(ggplot2)
+library(Rtsne)
+library(factoextra)
+library(caret)
+library(cluster)
+library(summarytools)
+library(gridExtra)
+library(randomForest)
+library(knitr)
+library(kableExtra)
+library(pROC)
+```
+
+## 1.1. Carga de los datasets
+
+```{r cargadat ,echo=FALSE, warning=FALSE, message=FALSE}
+# Cargamos el archivo Classes
+classes <- read.csv("classes.csv", header = FALSE, stringsAsFactors = FALSE, sep = ";")
+
+# Cargamos el archivo column_names
+column_names <- readLines("column_names.txt")
+
+# Cargamos el archivo gene_expression
+gene_expression <- read.csv("gene_expression.csv", header = FALSE, stringsAsFactors = FALSE, sep = ";")
+
+# Asignamos nombres de columnas al dataset de expresión génica
+colnames(gene_expression) <- column_names
+
+# Sumamos los datos por columnas
+sumas <- colSums(gene_expression) 
+columnascero <- names(sumas[sumas==0]) # vemos cuantas sumas son == 0
+columnascero
+
+# Reemplazamos el dataset sin esas columnas
+gene_expression <- gene_expression[, !names(gene_expression) %in% columnascero] 
+
+# Añadimos las etiquetas de las clases al dataset de expresión génica
+gene_expression$Class <- classes$V2
+
+# Convertimos la columna 'Class' en un factor para garantizar el mapeo correcto
+gene_expression$Class <- as.factor(gene_expression$Class)
+
+head(gene_expression)
+```
+
+## 1.2. Comprobación de valores missing
+
+```{r missing, echo=FALSE, warning=FALSE, message=FALSE}
+# Visualizamos missing values
+sum(is.na(gene_expression))
+any(is.na(gene_expression))
+```
+
+## 1.3. Exploración de los datos
+
+Dado que tenemos 500 variables numéricas, un *summary()* completo puede ser poco práctico porque genera demasiada información para analizar visualmente.
+
+```{r exp_datos, warning=FALSE, message=FALSE}
+#gráfico para observar la distribución de variables y los casos missing por columnas, observaciones y filas
+plot_intro(gene_expression)
+```
+
+# 2. Métodos de aprendizaje no supervisado
+Los métodos de aprendizaje no supervisados se centran en encontrar patrones ocultos y relaciones con datos no etiquetados. En este caso como ya se ha mencionado antes, tenemos un dataset de expresión de genes en varios tipos de canceres. Para llevar a cabo estos métodos, se realizarán dos técnicas de reducción de dimensionalidad y dos clusterizaciones.
+
+## 2.1. Métodos de reducción de la dimensionalidad
+Estos métodos consisten en la simplificación de conjuntos de datos que tienen muchas variables (o dimensiones). El objetivo principal es reducir la cantidad de datos del conjunto manteniendo la mayor cantidad de información relevante. De esta forma, estos métodos mejoran el rendimiento del análisis de los datos al eliminar ruido y redundancia, y facilita la visualización e interpretación.
+
+### 2.1.1. PCA
+El PCA es una técnica de reducción de dimensionalidad que mantiene la relación lineal de los datos. Su objetivo es máximizar la varianza y reducir la redundancia, generando un conjunto de componentes principales. Estos representan de forma más compacta y eficiente la información recogida en el conjutno de datos.
+
+Podemos conocer los componentes principales que explican el 60% de la información recogida mediante el calculo de la varianza acumulada o mediante un screeplot.
+
+```{r PCA1, echo=FALSE, warning=FALSE, message=FALSE}
+# Guardamos en un dataframe los genes 
+data <- data.frame(sapply(gene_expression, as.numeric))
+
+# Calculo de componentes principales con la funcion prcomp
+pca.results <- prcomp(data, center=TRUE, scale=FALSE)
+pca.df <- data.frame(pca.results$x)
+
+# Varianza (cuadrado de la desviacion tipica)
+varianzas <- pca.results$sdev^2
+# Total de la varianza de los datos
+total.varianza <- sum(varianzas)
+# Varianza explicada por cada componente principal
+varianza.explicada <- varianzas/total.varianza
+# Calculamos la varianza acumulada 
+varianza.acumulada <- cumsum(varianza.explicada)
+
+# Tomamos el numero de componentes principales que explican el 60% de la varianza
+n.pc <- min(which(varianza.acumulada > 0.6))
+print((n.pc))
+
+#Grafica con la importancia de los componentes
+fviz_eig(pca.results, addlabels = TRUE, ylim = c(0,50), ncp = 15) 
+
+
+```
+
+De esta forma, sabemos que son los primeros 12 componentes los que explican el 60% de la variabilidad de los datos. Sin embargo, representarlo puede ser un poco difícil así que se representarán los dos primeros componentes principales y posteriormente se realizarán gráficas descriptivas de las 12 mencionadas.
+
+
+```{r PCA2, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Etiquetas de los ejes del gráfico
+x_label <- paste0(paste('PC1', round(varianza.explicada[1] * 100, 2)), '%')
+y_label <- paste0(paste('PC2', round(varianza.explicada[2] * 100, 2)), '%')
+
+# Representación gráfica de las primeras dos componentes principales respecto a los datos
+ggplot(pca.df, aes(x=PC1, y=PC2, color=gene_expression$Class)) +
+  geom_point(size=3) +
+  scale_color_manual(values=c('red', 'blue', 'green', 'orange', 'purple')) +
+  labs(title='PCA Breast Cancer', x=x_label, y=y_label, color='Grupo') +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color="gray90"), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "gray95"), plot.title = element_text(hjust = 0.5))
+
+
+
+
+```
+
+Podemos observar como con el PCA se pueden agrupar los distintos tipos de cáncer. Sin embargo, este resultado nos indica que solo el grupo AGH está bien diferenciado, aún presentando algunos puntos en el aglomerado formado que posiblemente representen outliers.
+
+Esta representación nos sirve para conocer parte de la información del conjunto de datos. Sin embargo, representan menos del 30% de la información, por lo que solo nos serviría como una primera aproximación.
+
+```{r G_descriptivos, echo=FALSE, warning=FALSE, message=FALSE}
+
+#Visualizar la calidad de cada variable de las dimensiones 1 a 12 (60% de la varianza de los datos)
+fviz_cos2(pca.results, choice = "var", axes = 1:12, top = 15)
+
+#Visualizar la contribución de cada variable por dimensiones 1 a 12 (60% de la varianza de los datos)
+fviz_contrib(pca.results, choice = "var", axes = 1:12, top = 15)
+
+```
+
+Mediante estas dos gráficas podemos conocer más sobre la reoresentación de las variables en los componentes principales.
+
+- En la primera gráfica, se representa la calidad de representación de las variables en los componentes principales mediante cos2. Hya que tener en cuenta que, a mayor calidad, mayor representación en el componente. De esta manera, se observa como las variables "ZC3H12D" y "RUFY1" están muy bien representadas en los componentes.
+
+- En la segunda gráfica, se representa la contribución de las variables en los componentes principales. Al igual que antes, se observa como las variables "ZC3H12D" y "RUFY1" tienen un gran peso en los componentes.
+
+
+### 2.1.2. t-SNE
+El t-SNE es una técnica de reducción de dimensionalidad no lineal usada para la visualización de datos. Se destaca por conservar la localidad de los datos, de manera que es muy eficiente a la hora de identificar la estructura de los datos.
+
+
+```{r t-SNE, warning=FALSE, message=FALSE}
+# Algoritmo
+set.seed(1995)
+tsne <- Rtsne(X=data, dims = 2)
+tsne_result <- data.frame(tsne$Y)
+
+# Graficamos
+ggplot(tsne_result, aes(x = X1, y = X2, color = gene_expression$Class)) +
+geom_point(size = 3) +
+scale_color_manual(values = c("red", "blue", "green", "orange", "purple")) +
+labs(title = "Método t-SNE Breast Cancer", x = "PC1", y = "PC2", color = "Grupo") +
+theme_classic() +
+theme(panel.grid.major = element_line(color = "gray90"), panel.grid.minor = element_blank(),
+panel.background = element_rect(fill = "gray95"), plot.title=element_text(hjust=0.5))
+```
+
+Mediante la representación de los resultados del t-SNE, podemos observar que los distintos grupos de cáncer se han separado eficientemente. Sin emabargo, hay pocos casos en el tipo de cáncer CGC que se encuentran en otros grupos posiblemte debido a outliers. Cabe mencionar, que el tipo de cáncer CFB, se puede observar dos grupos indicando la posibilidad de que exista un subgrupo para el cáncer.
+
+Calculando la tasa de conservación, podemos evaluar cuanto se conservan la relaciones de vecindad de los  datos normales y los datos reducidos.
+```{r tasa_conservacion, echo=FALSE, warning=FALSE, message=FALSE}
+#Comprobamos la tasa de conservación 
+
+library(FNN)
+library(dplyr)
+
+conservation_rate <- function(original_data, reduced_data, k) {  
+   original_nn <- get.knnx(data = original_data, query = original_data, k = k) # Función get.knnx de la librería FNN para obtener los índices de los k vecinos más cercanos de cada punto
+   
+  reduced_nn <- get.knnx(data = reduced_data, query = reduced_data, k = k) # De forma similar, se obtienen los vecinos más cercanos para los puntos en el espacio reducido
+  
+  overlap_count <- sapply(1:nrow(original_data), function(i) { 
+    length(intersect(original_nn$nn.index[i, ], reduced_nn$nn.index[i, ]))
+  })
+  mean(overlap_count) / k # calculo el promedio de coincidencias por k
+}
+
+
+k_values <- seq(5,50, by = 5)
+
+#Creamos una matriz con los datos de los genes
+matrix_expression <- as.matrix(data %>%
+                                 select(-Class))
+
+for (k_neighbors in k_values) {
+  rate <- conservation_rate(matrix_expression, tsne$Y, k_neighbors)
+  print(paste("Tasa de conservación de los", k_neighbors, "vecinos más cercanos en 2D: ", rate))
+
+}
+```
+
+
+Se puede obervar como para distintos numero de vecinos, la tasa tiende a ser mayor al aumentar el número de vecinos. Esto podría indicar que ha mayor número de vecinos los datos ser conservarían mejor.
+
+# PREGUNTAS REDUCCIÓN DE DIMENSIONALIDAD:
+
+¿Cuál es el motivo por el cual habéis seleccionado estas técnicas de reducción de dimensionalidad? 
+
+Hemos escogido un método de reducción dimensional lineal y otro no lineal para poder conocer desde ambos puntos de vistas las relaciones presentes enre los datos del conjunto. El método de análisis de componentes principales (PCA) es un método fácil de implementar e interpretar que nos permite conocer la importancia de las variables en el conjunto. El método de T-Distributed Stochastic Neighbor Embedding (t-SNE) nos permite una mejor visualización de la estructura de los datos y podemos evaluar la conservación de esta.
+
+
+En ambos casos, ¿qué aspectos positivos y negativos tienen cada una? (0,2 puntos).
+
+## Ventajas
+
+### PCA
+- Alta eficacia para conjunto de datos con  variables altamente correlaciones
+- Fácil implemetación e interpretación gracias a los gráficos disponibles.
+
+### t-SNE
+- Eficiente identificación de la estructura de los datos gracias a la preservación de la localidad
+- Facilidad de visualización de los datos, mostrando relaciones no evidentes en el espacio original
+
+## Limitaciones
+### PCA
+- Difícil representación de gran parte de los datos al ser necesaria 12 componentes parael 60% de la variabilidad
+- Depende de la existencia de relaciones lineales entre las variables
+
+### t-SNE 
+- Sin semilla de aletoriedad, el resultado no es deteminante, pues cada vez que se ejecuta el algoritmo la gráfica es diferente.
+- Muy costoso computacionalemte para conjuntos de datos grandes y resultados recomendados solo para la visualización de los datos 
