@@ -1,0 +1,703 @@
+---
+title: "Actividad grupal."
+subtitle: "Análisis de un conjunto de datos de origen biológico mediante técnicas de machine
+  learning supervisadas y no supervisadas"
+author: "Equipo 8, Lote 7: Sandra Benito, Enrique Carnerero, Gabriel Martín, Víctor Saavedra"
+date: "02-02-2025"
+output: 
+  html_document:
+    toc: TRUE
+    number_sections: TRUE
+    toc_float: TRUE
+    theme: united
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Reseteo del entorno
+rm(list=ls())
+
+# Directorio con los datos
+path <- "C:/Users/victo/OneDrive/Escritorio/UNIR/1er - Algoritmos e Inteligencia Artificial/Actividades IA/act3_algIA"
+setwd(path)
+
+```
+
+
+
+```{r libraries, echo = FALSE, message=FALSE}
+# Carga de librerías
+library(dplyr)   # Manipulacion de datos
+library(DataExplorer)  # Para plot_intro
+library(stats)   # Para dist, PCA, kmeans, hclust
+library(factoextra)   # Para fviz_eig, fviz_cos2, fviz_contrib, fviz_clust, fviz_nbclust, fviz_dend
+library(Rtsne)   # Para t-SNE
+library(FNN)   # Para get.knnx
+library(caret)   # Para createDataPartition, train
+library(rattle) # DT plot
+library(ggplot2)   # Para representación gráfica
+library(kableExtra)   # Para tablas
+library(gt)   # Para tablas
+
+```
+
+
+# .	Procesamiento de los datos
+
+
+```{r data_processing_1, echo=FALSE, message=FALSE}
+# Lectura de datos
+columns <- read.table('column_names.txt', sep = "\f")   # Nombres de columnas de los datos
+data <- read.csv('gene_expression.csv', header=FALSE, col.names=columns[[1]], sep=";")   # Datos
+labels <- read.csv('classes.csv', header=FALSE, sep=";")   # Etiquetas para evaluar resultados
+
+# Dataframe para almacenar resultados de clasificacion
+data_classes <- data.frame(as.factor(labels$V2))
+colnames(data_classes) <- "labels"
+
+```
+
+Los datos provienen de medidas de expresión génica, mediante RNA-seq, de 500 genes realizadas sobre 801 pacientes de cáncer. El archivo consta de 801 filas, correspondientes a los pacientes, y 500 columnas, correspondientes a los genes.  
+  
+Se adjuntan etiquetas sobre el tipo de cáncer que muestra cada paciente, que se usarán solamente para evaluar los resultados de los algoritmos.  
+  
+
+```{r data_processing_2, echo=FALSE, message=FALSE}
+# Eliminamos genes con expresión 0 en todos los pacientes
+sumas <- colSums(data)
+columnascero <- names(sumas[sumas==0])
+data <- data[, !names(data) %in% columnascero] # reemplazo el dataset sin esas columnas
+
+# Comprobación de NAs
+print(paste0("¿Existe algún valor NA entre los datos? -> ", is.na(sum(colSums(data)))))
+
+```
+
+En el procesamiento inicial de datos hemos eliminado las columnas de genes que no tienen expresión (tienen expresión 0 en todas sus celdas), por no aportar información de interés, y hemos comprobado que no existe ningún valor NA. No hemos aplicado transformaciones adicionales a los datos y procederemos a trabajar con ellos en su estado original.  
+
+
+```{r data_processing_3, echo = FALSE, warning=FALSE, message=FALSE}
+#gráfico para observar la distribución de variables y los casos missing por columnas, observaciones y filas
+plot_intro(data)
+```
+
+  
+  
+# .	Métodos de aprendizaje no supervisado
+
+Los métodos de aprendizaje no supervisados se centran en encontrar patrones ocultos y relaciones con datos no etiquetados. En este caso como ya se ha mencionado antes, tenemos un dataset de expresión de genes en varios tipos de canceres. Para llevar a cabo estos métodos, se realizarán dos técnicas de reducción de dimensionalidad y dos clusterizaciones.  
+
+## . Métodos de reducción de la dimensionalidad
+
+Estos métodos consisten en la simplificación de conjuntos de datos que tienen muchas variables (o dimensiones). El objetivo principal es reducir la cantidad de datos del conjunto manteniendo la mayor cantidad de información relevante. De esta forma, estos métodos mejoran el rendimiento del análisis de los datos al eliminar ruido y redundancia, y facilita la visualización e interpretación.  
+
+### . PCA
+El PCA es una técnica de reducción de dimensionalidad que mantiene la relación lineal de los datos. Su objetivo es máximizar la varianza y reducir la redundancia, generando un conjunto de componentes principales. Estos representan de forma más compacta y eficiente la información recogida en el conjutno de datos.  
+
+Podemos conocer los componentes principales que explican el 60% de la información recogida mediante el calculo de la varianza acumulada o mediante un screeplot.  
+
+```{r PCA1, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Calculo de componentes principales con la funcion prcomp
+pca.results <- prcomp(data, center=TRUE, scale=FALSE)
+pca.df <- data.frame(pca.results$x)
+
+# Varianza (cuadrado de la desviacion tipica)
+varianzas <- pca.results$sdev^2
+# Total de la varianza de los datos
+total.varianza <- sum(varianzas)
+# Varianza explicada por cada componente principal
+varianza.explicada <- varianzas/total.varianza
+# Calculamos la varianza acumulada 
+varianza.acumulada <- cumsum(varianza.explicada)
+
+# Tomamos el numero de componentes principales que explican el 60% de la varianza
+n.pc <- min(which(varianza.acumulada > 0.6))
+print((n.pc))
+
+#Grafica con la importancia de los componentes
+fviz_eig(pca.results, addlabels = TRUE, ylim = c(0,50), ncp = 15) 
+
+
+```
+
+De esta forma, sabemos que son los primeros 12 componentes los que explican el 60% de la variabilidad de los datos. Sin embargo, representarlo puede ser un poco difícil así que se representarán los dos primeros componentes principales y posteriormente se realizarán gráficas descriptivas de las 12 mencionadas.  
+
+
+```{r PCA2, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Etiquetas de los ejes del gráfico
+x_label <- paste0(paste('PC1', round(varianza.explicada[1] * 100, 2)), '%')
+y_label <- paste0(paste('PC2', round(varianza.explicada[2] * 100, 2)), '%')
+
+# Representación gráfica de las primeras dos componentes principales respecto a los datos
+ggplot(pca.df, aes(x=PC1, y=PC2, color=data_classes$labels)) +
+  geom_point(size=3) +
+  scale_color_manual(values=c('red', 'blue', 'green', 'orange', 'purple')) +
+  labs(title='PCA Breast Cancer', x=x_label, y=y_label, color='Grupo') +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color="gray90"), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "gray95"), plot.title = element_text(hjust = 0.5))
+
+
+
+
+```
+
+Podemos observar como con el PCA se pueden agrupar los distintos tipos de cáncer. Sin embargo, este resultado nos indica que solo el grupo AGH está bien diferenciado, aún presentando algunos puntos en el aglomerado formado que posiblemente representen outliers.  
+
+Esta representación nos sirve para conocer parte de la información del conjunto de datos. Sin embargo, representan menos del 30% de la información, por lo que solo nos serviría como una primera aproximación.  
+
+```{r G_descriptivos, echo=FALSE, warning=FALSE, message=FALSE}
+
+#Visualizar la calidad de cada variable de las dimensiones 1 a 12 (60% de la varianza de los datos)
+fviz_cos2(pca.results, choice = "var", axes = 1:12, top = 15)
+
+#Visualizar la contribución de cada variable por dimensiones 1 a 12 (60% de la varianza de los datos)
+fviz_contrib(pca.results, choice = "var", axes = 1:12, top = 15)
+
+```
+
+Mediante estas dos gráficas podemos conocer más sobre la representación de las variables en los componentes principales.  
+
+- En la primera gráfica, se representa la calidad de representación de las variables en los componentes principales mediante cos2. Hay que tener en cuenta que, a mayor calidad, mayor representación en el componente. De esta manera, se observa como las variables "ZC3H12D" y "RUFY1" están muy bien representadas en los componentes.  
+
+- En la segunda gráfica, se representa la contribución de las variables en los componentes principales. Al igual que antes, se observa como las variables "ZC3H12D" y "RUFY1" tienen un gran peso en los componentes.  
+
+
+### . t-SNE
+El t-SNE es una técnica de reducción de dimensionalidad no lineal usada para la visualización de datos. Se destaca por conservar la localidad de los datos, de manera que es muy eficiente a la hora de identificar la estructura de los datos.  
+
+
+```{r t-SNE, warning=FALSE, message=FALSE, echo=FALSE}
+# Algoritmo
+set.seed(1995)
+tsne <- Rtsne(X=data, dims = 2)
+tsne_result <- data.frame(tsne$Y)
+
+# Graficamos
+ggplot(tsne_result, aes(x = X1, y = X2, color = data_classes$labels)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("red", "blue", "green", "orange", "purple")) +
+  labs(title = "Método t-SNE Breast Cancer", x = "PC1", y = "PC2", color = "Grupo") +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color = "gray90"), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "gray95"), plot.title=element_text(hjust=0.5))
+```
+
+Mediante la representación de los resultados del t-SNE, podemos observar que los distintos grupos de cáncer se han separado eficientemente. Sin emabargo, hay pocos casos en el tipo de cáncer CGC que se encuentran en otros grupos posiblemte debido a outliers. Cabe mencionar, que el tipo de cáncer CFB, se puede observar dos grupos indicando la posibilidad de que exista un subgrupo para el cáncer.  
+
+Calculando la tasa de conservación, podemos evaluar cuanto se conservan la relaciones de vecindad de los  datos normales y los datos reducidos.  
+
+```{r tasa_conservacion, echo=FALSE, warning=FALSE, message=FALSE}
+#Comprobamos la tasa de conservación 
+
+
+conservation_rate <- function(original_data, reduced_data, k) {  
+  original_nn <- get.knnx(data = original_data, query = original_data, k = k) # Función get.knnx de la librería FNN para obtener los índices de los k vecinos más cercanos de cada punto
+  
+  reduced_nn <- get.knnx(data = reduced_data, query = reduced_data, k = k) # De forma similar, se obtienen los vecinos más cercanos para los puntos en el espacio reducido
+  
+  overlap_count <- sapply(1:nrow(original_data), function(i) { 
+    length(intersect(original_nn$nn.index[i, ], reduced_nn$nn.index[i, ]))
+  })
+  mean(overlap_count) / k # calculo el promedio de coincidencias por k
+}
+
+
+k_values <- seq(5,50, by = 5)
+
+#Creamos una matriz con los datos de los genes
+matrix_expression <- as.matrix(data)
+
+for (k_neighbors in k_values) {
+  rate <- conservation_rate(matrix_expression, tsne$Y, k_neighbors)
+  print(paste("Tasa de conservación de los", k_neighbors, "vecinos más cercanos en 2D: ", rate))
+  
+}
+```
+
+
+Se puede obervar como para distintos numero de vecinos, la tasa tiende a ser mayor al aumentar el número de vecinos. Esto podría indicar que ha mayor número de vecinos los datos ser conservarían mejor.  
+
+## . Clusterización
+
+Aplicaremos ahora dos técnicas de clusterización.  
+
+### . Clusterización no jerárquica por k-means 
+
+En la clusterización no jerárquica suponemos que los datos se estructuran en grupos separados y no anidados unos dentro de otros. En el algoritmo por k-means se busca y optimiza un número k de centroides, que son los puntos medios de cada cluster, de tal manera que los clusters sean lo más compactos posibles (menor distancia de los datos a sus centroides asociados).    
+
+Como método no supervisado, supondremos que no se conoce el grupo al que pertenece cada paciente ni el número de grupos totales. Debemos encontrar entonces el número de centroides óptimo, el número k.  
+
+
+```{r cluster_kmeans_1, echo = FALSE}
+
+set.seed(1995)
+
+## BUSCAMOS EL NUMERO OPTIMO DE CLUSTERS
+
+# Parámetros de fviz_nbclust():
+#   x: el dataframe o la matriz de los datos
+#   FUNcluster: función de clusterización cuyo 2º parámetro vamos a optimizar (en este caso: 2º parametro de kmeans es centers) 
+#   method: método para la optimización ("wss" - whithin sum of square: total de sumas de cuadrados)
+# Salida de fviz_nbclust():
+#   Un ggplot2
+
+# Mostramos el error del modelo en funcion del numero de clusters
+fviz_nbclust(data[, 1:497], kmeans, method = "wss") +
+  ggtitle("Número óptimo de clusters", subtitle = "") +
+  theme_classic()
+
+
+```
+
+
+El gráfico nos indica lo compactos que son los clusters en función del número de centroides (k): a menor total de suma de cuadrados (WSS), más compactos. Para elegir el k óptimo usamos la regla del codo, esto es, elegimos un número de centroides tal que añadir un número más no mejora mucho más el WSS total.  
+
+En este caso el número óptimo sería de 5 centroides, dado que el WSS baja consistentemente hasta k=5 pero no mucho más para k mayores. Realizaremos ahora el clustering por k-means con 5 centroides. Incluimos también una proyección en 2-D del resultado.  
+
+
+```{r cluster_kmeans_2, echo = FALSE}
+
+## REALIZAMOS CLUSTERING POR K-MEANS
+
+# Parámetros de kmeans():
+#   x: el dataframe o la matriz de los datos
+#   centers: si es un número, es el número de clusters (se elegirán filas de x al azar como centrómeros iniciales)
+#   iter.max: máximo permitido de iteraciones
+#   nstart: nº de sets aleatorios de x a elegir al inicio
+# Salida de kmeans():
+#   Un objeto de clase "kmeans", es una lista que incluye (entre otros):
+#     $cluster: vector indicando a qué cluster pertenece cada observación (fila de x)
+#     $centers: matriz con las coordenadas multidimensionales de cada centrómero (nºcentrómeros x nºcolumnasdex)
+
+# Agrupamos datos en 5 clusters
+kmeans.result <- kmeans(data[, 1:497], centers = 5, iter.max = 100, nstart = 25)
+
+
+
+## MOSTRAMOS EL CLUSTERING EN 2-D
+
+# Clustering no jerárquico con kmeans, con función fviz_cluster()
+# Parámetros de fviz_cluster():
+#   object: objeto de clase "kmeans" (de librería stats) u otra clase soportada.
+#   data: el dataframe usado en el clustering (obligatorio si object es kmeans)
+#   xlab, ylab: etiquetas de los ejes x,y
+# Salida de fviz_cluster():
+#   Un ggplot2
+
+# Plot del resultado de 5 clusters en 2D
+fviz_cluster(kmeans.result, data[, 1:497], xlab = '', ylab = '') +
+  ggtitle("Gráfico k-means, centros = 5", subtitle = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+Una vez clasificadas las muestras en clusters, y dado que en este caso conocemos el grupo al que pertenece cada paciente, podemos comprobar si la clusterización ha sido adecuada. La siguiente tabla muestra la distribución de las muestras, en las filas el tipo de tumor y en las columnas el número de cluster calculado. Observamos que los grupos reales y los calculados coinciden para casi todas las muestras, y por tanto la predicción de clusters ha sido muy buena.   
+
+
+```{r cluster_kmeans_3, echo = FALSE}
+
+## CLASIFICACION DE LAS OBSERVACIONES Y EVALUACION DEL MODELO
+
+# Guardamos el numero de cluster calculado para cada observacion en la columna cluster_kmeans
+data_classes$cluster_kmeans <- as.factor(kmeans.result$cluster)
+
+# Observamos la relación entre los clusteres calculados y el tipo de tumor
+table(data_classes$labels, data_classes$cluster_kmeans)
+
+```
+
+
+### . Clusterización jerárquica aglomerativa por varianza mínima de Ward
+
+En la clusterización jerárquica suponemos que los datos se estructuran en grupos, y que los grupos se encuentran anidados unos dentro de otros en función de su similitud. Cuando es aglomerativa, los datos se van agrupando "de abajo a arriba", es decir, las muestras se agrupan inicialmente con muestras similares y unos grupos se van fusionando gradualmente con otros grupos en una jerarquía más alta. Existen varios criterios para esta agrupación, entre ellos la varianza mínima de Ward, que busca minimizar la varianza total dentro de los clusters.  
+
+
+```{r cluster_ward_1, echo = FALSE}
+
+
+# Calculamos la matriz de distancia (input para la funcion hclust)
+dist_matrix <- dist(data[, 1:497])
+
+# Clustering jerárquico aglomerativo, con función hclust()
+# Parámetros de hclust():
+#   d: matriz de distancias
+#   method: método de clustering 
+# Salida de hclust():
+#   Un objeto de clase "hclus", es una lista
+hclust_model_ward <- hclust(dist_matrix, method = "ward.D") 
+
+```
+
+
+La clusterización jerárquica nos permite ordenar y visualizar los datos mediante un dendrograma, o árbol invertido. Cada hoja corresponde a una muestra y las ramas representan los clusters que se van generando al combinar elementos. La altura de la rama indica el grado de diferencia entre los elementos fusionados.  
+
+El dendrograma generado a partir de nuestro dataset es el siguiente:  
+
+
+```{r cluster_ward_2, echo = FALSE, warning=FALSE}
+
+## DENDROGRAMA
+
+# Creamos dendrograma con la clusterizacion
+clust_ward <- fviz_dend(hclust_model_ward, 
+                          cex = 0.5,
+                          main = "Ward",
+                          xlab = "Índice de Observaciones",
+                          ylab = "Distancia") + 
+                          theme_classic()
+# Mostramos el dendrograma
+print(clust_ward)
+
+
+```
+
+Se observan varios clusters claramente separados, donde una mayor separación entre ellos se representa con una mayor altura de rama. La elección del número óptimo de clusters es arbitraria, dependiendo del umbral de distancia que seleccionemos en el eje vertical.  
+
+
+Podemos comprobar si la clusterización es capaz de predecir correctamente los grupos de pacientes, sabiendo que nuestro dataset está dividido en 5 grupos. En primer lugar, representaremos cada cluster en distinto color en el dendrograma. En segundo lugar, compararemos si los clusters calculados para las muestras coinciden con los tipos de tumor reales.  
+
+
+```{r cluster_ward_3, echo = FALSE, warning=FALSE}
+
+## DENDROGRAMA DE COLOR
+
+# Paleta de colores
+colors <- rainbow(5)
+
+# Creamos dendrograma con la clusterizacion
+clust_ward_color <- fviz_dend(hclust_model_ward, 
+                          cex = 0.5,
+                          k = 5,
+                          palette = rainbow(5),
+                          main = "Ward",
+                          xlab = "Índice de Observaciones",
+                          ylab = "Distancia") + 
+                          theme_classic()
+# Mostramos el dendrograma
+print(clust_ward_color)
+
+
+```
+
+
+```{r cluster_ward_4, echo = FALSE}
+
+# CLASIFICACION DE LAS OBSERVACIONES Y EVALUACION DEL MODELO
+
+# Con los resultados, clasificamos cada observación (fila) de nuestro dataset en uno de 5 clusters. El numero de cluster se guarda en la columna cluster_ward
+data_classes$cluster_ward <- as.factor(cutree(hclust_model_ward, k = 5))
+
+# Observamos cuántos pacientes de cada cluster se han asociado a cada tipo de tumor
+table(data_classes$labels, data_classes$cluster_ward)
+
+```
+
+Los grupos reales y los calculados coinciden casi por completo.   
+
+
+
+# .	Métodos de aprendizaje supervisado
+
+Aplicaremos ahora tres métodos de aprendizaje supervisado. Estos métodos son entrenados con datos etiquetados para encontrar patrones y relaciones complejas entre las variables, y se usan para predecir el comportamiento de datos no conocidos.   
+
+En primer lugar debemos hacer una partición de los datos. Usaremos el 80% de las muestras de nuestro dataset para entrenar (datos de entrenamiento) y el 20% restante para evaluar los algoritmos (datos de evaluación).  
+
+```{r data_processing_partition, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Incluimos etiquetas en FORMATO FACTOR como última columna del dataset
+data$labels <- as.factor(labels$V2)
+
+
+# PARTICION DE DATOS PARA ENTRENAMIENTO
+
+# Dividir el conjunto de datos en conjuntos de entrenamiento y prueba
+set.seed(1995)
+trainIndex <- createDataPartition(data$labels, p = 0.8, list = FALSE)  # 80% de las observaciones para training
+trainData <- data[trainIndex,]  # Datos de entrenamiento
+testData <- data[-trainIndex,]  # Datos de testing
+
+```
+
+
+## . K vecinos más cercanos (k-NN)
+
+El algoritmo de k vecinos más cercanos (k-nearest neighbors, k-NN) supone que los datos similares probablemente tienen comportamientos similares. Por tanto, para asignar una clase a un dato nuevo, busca un número k de datos conocidos que son vecinos a este, y utiliza sus etiquetas para predecir la etiqueta del dato nuevo.  
+
+
+
+Para entrenar nuestro modelo k-NN usamos un método de ten-fold cross-validation: los datos se dividen en 10 partes, de las cuales 9 se usan para entrenar y 1 para evaluar la precisión, y esto se hace de forma iterativa 10 veces. Este algoritmo de k-NN requiere optimizar el número de vecinos (hiperparámetro k), como haremos a continuación.  
+
+
+```{r knn_1, echo=FALSE, message=FALSE}
+
+# Crear un modelo de k-NN utilizando el paquete caret
+knnModel <- train(labels ~ .,   # Labels es función del resto de vbles
+                  data = trainData,
+                  method = "knn",
+                  trControl = trainControl(method = "cv", number = 10),  # Ten-fold cross-validation
+                  preProcess = c("center", "scale"),
+                  tuneLength = 30)   # Probamos 30 valores de k vecinos
+
+plot(knnModel)   # Muestra la precisión del método según el k nº de vecinos (por cross-validation); el valor más alto nos da el k óptimo
+
+```
+
+De entre los valores de k probados, K=11 y k=13 son los que ofrecen mayor precisión. Se usará entonces un k=13.  
+A continuación, usamos el modelo entrenado para hacer predicciones en los datos de evaluación. Comparamos los grupos calculados por el modelo con los grupos reales, para así medir la precisión y otras métricas de evaluación. Se muestran a continuación la matriz de confusión y las métricas de evaluación para cada clase.     
+
+```{r knn_2, echo = FALSE}
+
+# Realizamos predicciones en el conjunto de prueba utilizando el modelo entrenado
+predictions <- predict(knnModel, newdata = testData )
+
+# Evaluamos la precisión del modelo utilizando la matriz de confusión
+confusion_matrix_knn <- confusionMatrix(predictions, testData$labels)
+confusion_matrix_knn$table
+
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- confusion_matrix_knn$byClass[, "Pos Pred Value"]  
+sensibilidad <- confusion_matrix_knn$byClass[, "Sensitivity"]  
+especificidad <- confusion_matrix_knn$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * sensibilidad) / (precision + sensibilidad)
+
+# Creamos un data frame con las métricas
+metricas_knn <- data.frame(
+  Precisión = round(precision, 4),   
+  Sensibilidad = round(sensibilidad, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(metricas_knn, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+
+```
+
+La matriz de confusión nos indica que los grupos predichos para cada muestra coinciden en su totalidad con los grupos reales. La precisión, la sensibilidad, la especificidad y el valor F (F1-Score) para cada grupo es 1.  
+
+Las métricas nos indican que el modelo clasifica perfectamente los datos de evaluación. Cuando ocurre esto, puede haber un problema de sobreajuste, que el modelo haya memorizado los patrones del dataset en lugar de patrones más generales y que no sea tan capaz de hacer predicciones con datos nuevos. Sería recomendable usar un conjunto de datos nuevo para evaluar el modelo, o ajustar el hiperparámetro k.  
+
+
+## . Árbol de decisión
+
+Como en el modelo anterior, para entrenar el árbol de decisión usamos un método de ten-fold cross-validation. El árbol de decisión requiere optimizar un parámetro de complejidad (cp), que indica cómo de complejo es el árbol y permite reducir el sobreajuste.  
+
+```{r dt_1, echo=FALSE, message=FALSE}
+
+# Creamos un modelo de DT utilizando el paquete caret
+dtModel <- train(labels ~.,
+                 data = trainData,
+                 method = "rpart",
+                 trControl = trainControl(method = "cv", number = 10),
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+#dtModel
+
+# Representamos la precisión en función del parámetro de complejidad
+plot(dtModel)
+
+```
+
+El valor cp óptimo es el que aporta una mayor precisión, en este caso cp = 0. Una vez escogido el cp óptimo, se calcula el modelo y podemos representar el árbol de decisión.  
+
+
+```{r dt_2, echo = FALSE}
+
+# Representamos el árbol de decisión
+fancyRpartPlot(dtModel$finalModel, main = "Árbol de decisión", type=1)
+
+```
+
+El árbol de decisión ofrece una guía visual para decidir qué categoría más probable es una muestra de interés, haciendo una serie de preguntas sencillas sobre sus variables. El nodo inicial (nodo raíz) muestra la categoría (tipo de tumor) más probable en el total de muestras, la probabilidad de cada categoría en el total, y que se trata del 100% de las muestras. En cada nodo se compara el valor que tiene la muestra para la variable indicada y se sigue la rama correspondiente. El siguiente nodo tiene un nuevo valor para la categoría más probable, la probabilidad para las distintas categorías y la proporción de muestras que han llegado a ese nodo. En los nodos inferiores (hojas) tenemos el resultado final de la clasificación.    
+
+Hacemos predicciones con el modelo entrenado en los datos de evaluación. Mostramos ahora la matriz de confusión, y las métricas de evaluación del modelo.  
+
+```{r dt_3, echo = FALSE}
+
+# Evaluar el modelo con el conjunto de prueba
+predictions_raw <- predict(dtModel, newdata = testData, type = "raw") # raw = clases
+
+# Evaluar la precisión del modelo utilizando la matriz de confusión
+confusion_matrix_dt <- confusionMatrix(predictions_raw, testData$labels)
+confusion_matrix_dt$table
+
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- confusion_matrix_dt$byClass[, "Pos Pred Value"]  
+sensibilidad <- confusion_matrix_dt$byClass[, "Sensitivity"]  
+especificidad <- confusion_matrix_dt$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * sensibilidad) / (precision + sensibilidad)
+
+# Creamos un data frame con las métricas
+metricas_dt <- data.frame(
+  Precisión = round(precision, 4),   
+  Sensibilidad = round(sensibilidad, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(metricas_dt, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+
+```
+
+Las métricas muestran una buena capacidad de predicción del modelo, pero funciona mejor en la predicción de algunas clases. El modelo clasifica muy bien las clases AGH y CFB, con alta precisión y sensibilidad. Las clases CGC, CHC y HPB muestran peores métricas y el modelo tiende a predecir menos observaciones de estas clases correctamente.  
+  
+
+
+## . Máquinas de vectores de soporte con kernel gaussiano (Gaussian SVM) 
+
+El algoritmo SVM busca un hiperplano en las dimensiones de los datos de tal forma que los datos queden separados por sus categorías. Las funciones kernel incrementan la capacidad computacional del SVM y ofrecen mayor versatilidad en los cálculos Separando bien los datos con este hiperplano, se permitirá una buena predicción de las categorías para nuevos datos.  
+
+De nuevo para entrenar el modelo usamos un método de ten-fold cross-validation. El SVM requiere optimizar un hiperparámetro (cost). A continuación elegimos el cost óptimo que ofrece la mayor precisión.
+
+```{r svm_1, echo = FALSE}
+# Creamos un modelo de SVM tipo kernel utilizando el paquete caret
+svmModelKernel <- train(labels ~.,
+                        data = trainData,
+                        method = "svmRadial",
+                        trControl = trainControl(method = "cv", number = 10),
+                        preProcess = c("center", "scale"),
+                        tuneLength = 10,
+                        prob.model = TRUE) 
+
+# Representamos la precisión del modelo en funcion del parametro 
+plot(svmModelKernel)
+
+
+# Realizar predicciones en el conjunto de prueba utilizando el modelo entrenado
+predictions <- predict(svmModelKernel, newdata = testData )
+
+```
+
+El valor óptimo del hiperparámetro Cost es 4.  
+Con el modelo entrenado podemos ahora hacer predicciones en los datos de evaluación, y comparar los grupos reales con estas predicciones. Mostramos la matriz de confusión y calculamos las métricas de evaluación para cada clase.
+
+
+```{r svm_2, echo = FALSE}
+# Evaluamos la precisión del modelo utilizando la matriz de confusión
+confusion_matrix_svm <- confusionMatrix(predictions, testData$labels)
+confusion_matrix_svm$table
+
+# Extraemos las métricas relevantes de la matriz de confusión
+precision <- confusion_matrix_svm$byClass[, "Pos Pred Value"]  
+sensibilidad <- confusion_matrix_svm$byClass[, "Sensitivity"]  
+especificidad <- confusion_matrix_svm$byClass[, "Specificity"] 
+
+# Calculamos el F1-Score para cada clase
+f1_score <- 2 * (precision * sensibilidad) / (precision + sensibilidad)
+
+# Creamos un data frame con las métricas
+resultados <- data.frame(
+  Precisión = round(precision, 4),   
+  Sensibilidad = round(sensibilidad, 4),
+  Especificidad = round(especificidad, 4),
+  `F1-Score` = round(f1_score, 4)
+)
+
+# Mostramos los resultados en una tabla
+kable(resultados, format = "html", caption = "Resultados por clase") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+
+```
+
+El modelo tiene un rendimiento variado según la clase. La clase AGH se predice perfectamente, con todas las métricas igual a 1, y las clases CFB y HPB desempeñan muy bien. Todas las observaciones de CGC se clasifican adecuadamente, pero hay un alto número de casos de CHC que se clasifican erróneamente como CGC, lo cual reduce la capacidad predictiva del modelo, con una sensibilidad para el CHC muy baja (0.148) y un bajo F1-Score (0.258).  
+
+
+# . Preguntas de la actividad
+
+
+## Procesamiento de los datos:
+
+**¿Qué método habéis escogido para llevar a cabo la imputación de los datos?** 
+
+El dataset no contiene ningún dato missing, pero sí contiene un número elevado de campos con valor 0. Hemos supuesto que estos valores 0 no son valores faltantes, sino que responden al comportamiento normal de las muestras. Por tanto, un valor 0 se puede interpretar como que el gen en cuestión no se está expresando en esa muestra, o que se está expresando de forma mínima y no supera el límite de detección.  
+Por esto, hemos mantenido todos los genes que muestran expresión en alguna muestra, y hemos eliminado los genes con expresión 0 en todas las muestras porque no aportan información.  
+
+
+**¿Habéis llevado a cabo algún otro tipo de procesamiento?**
+
+Dado que todos los genes muestran valores de expresión en el mismo orden de magnitud, no hemos considerado necesario llevar a cabo ningún otro tipo de transformación inicial de los datos.  
+
+
+## Métodos no supervisados:
+
+**¿Cuál es el motivo por el cual habéis seleccionado estas técnicas de reducción de dimensionalidad?** 
+
+Hemos escogido un método de reducción dimensional lineal y otro no lineal para poder conocer desde ambos puntos de vistas las relaciones presentes enre los datos del conjunto. El método de análisis de componentes principales (PCA) es un método fácil de implementar e interpretar que nos permite conocer la importancia de las variables en el conjunto. El método de T-Distributed Stochastic Neighbor Embedding (t-SNE) nos permite una mejor visualización de la estructura de los datos y podemos evaluar la conservación de esta.  
+
+**¿Cuál es el motivo por el cual habéis seleccionado estas técnicas de clusterización?**  
+Hemos escogido un algoritmo de clusterización jerárquico y otro no jerárquico. La clusterización no jerárquica por k-means, además de resultar en una menor variabilidad dentro de los grupos, nos permite optimizar el número de estos. El método de Ward de clusterización jerárquica resulta también en menor variabilidad dentro de los grupos, sin necesidad de optimizar el número de clústeres, y resulta en una visualiación de tipo dendrograma.   
+
+**En ambos casos, ¿qué aspectos positivos y negativos tienen cada una?**  
+
+En la siguiente tabla se recogen las ventajas y limitaciones de los métodos no supervisados utilizados en la actividad:  
+
+```{r tabla_metodos_no_sup, echo = FALSE}
+
+# Crear la tabla con saltos de línea en ventajas y limitaciones
+tabla <- data.frame(
+  Método = c("PCA", "t-SNE", "Clusterización por k-means", "Clusterización jerárquica de Ward"),
+  Ventajas = c("Muy eficaz en conjuntos de datos altamente correlacionados. <br>Fácil implemetación e interpretación. ", 
+               "Fácil identificación de la estructura de los datos por preservarse la localidad. <br>Fácil visualización, muestra relaciones no evidentes en el espacio original", 
+               "Implementación sencilla. <br>Computacionalmente poco costosa. <br>Resulta en clústeres con baja variabilidad interna. ", 
+               "No requiere especificar número de clústeres (frente a k-means). <br>Resistente a valores atípicos (frente otros métodos jerárquicos). "),
+  Limitaciones = c("Difícil de representar todos los datos <br>Depende de la existencia de relaciones lineales entre las variables. ", 
+                   "Requiere de semilla de aleatoriedad para resultados reproducibles. <br>Muy costoso computacinalmente para conjuntos de datos grandes. <br>Solo recomendado para visualizar datos. ", 
+                   "Puede ser difícil optimizar los centroides. <br>Sensible a valores atípicos. <br>Resulta en clústeres con baja variabilidad interna. ", 
+                   "Puede ser difícil determinar criterio (dentro de jerárquicos). <br>Cambiar el número de muestras puede alterar la clusterización. ")
+)
+
+# Generar la tabla en gt
+tabla %>%
+  gt() %>%
+  tab_header(title = "Comparación de métodos de aprendizaje no supervisado") %>%
+  cols_label(Método = "Método", Ventajas = "Ventajas", Limitaciones = "Limitaciones") %>%
+  fmt_markdown(columns = c(Ventajas, Limitaciones))  # Permite interpretar los saltos de línea
+
+
+```
+
+
+**En el caso de la clusterización, ¿se puede afirmar con certeza que los clústeres generados son los mejores posibles?**  
+
+En el algoritmo por k-means podemos optimizar el número de centroides (k) para asegurarnos de que los clústeres son lo más compactos posibles, y de esta manera tenemos la certeza de que el número de clústeres es óptimo (si el dataset permite que exista un óptimo). En el algoritmo de Ward no se incluye este paso, la elección del número de clústeres es arbitrario y puede no ser el óptimo.  
+
+
+## Métodos supervisados:
+
+**¿Cuál es el motivo por el cual habéis seleccionado ambas técnicas de aprendizaje supervisado? ¿Cuál ha dado mejores resultados a la hora de clasificar las muestras?** 
+
+Hemos escogido tres técnicas con distintos puntos fuertes para complementarse unas con otras. El k-NN es un método sencillo de comprender e interpretar. El árbol de decisión ofrece una forma visual de interpretar el modelo. El SVM con kernel gaussiano permite separar de forma más flexible las clases en una mayor dimensión.  
+
+De entre todas, la técnica de k-nearest neighbors es la que mejor resultados de clasificación ha dado, con todas las métricas de evaluación igual a 1. Sin embargo, debemos considerar el riesgo de que haya habido un sobreajuste.  
+
+
+**¿Habéis considerado oportuno implementar algún método de reducción de dimensionalidad para procesar los datos antes de implementarlos en dichas técnicas?**
+
+Debido al tamaño relativamente reducido del dataset, y el bajo requerimiento para el procesamiento, no hemos creído conveniente reducir la dimensionalidad de los datos.  
+
+
+## Deep learning:
+
+**¿Qué tipo de arquitectura de deep learning sería la más adecuada para procesar datos de expresión génica?**
+
+a) Red de perceptrones (multiperceptron layers): utilizan datos tabulares o vectoriales.
+b) Redes convolucionales: utilizan datos tridimensionales, enfocado a tareas de clasificación de imágenes y reconocimiento de objetos.
+c) Redes recurrentes: utilizan datos secuenciales, enfocado a series temporales.
+d) Redes de grafos: utilizan datos estructurados en redes, enfocado a interacciones complejas entre elementos.
+
+Las redes de perceptrones serían más adecuadas, por estar los datos de expresión génica normalmente representados en matrices tabulares (con genes en las columnas y pacientes en las filas). En casos particulares pueden ser útiles las redes recurrentes, si la expresión génica se mide a lo largo del tiempo, y las redes de grafos, para capturar las interacciones complejas entre genes, proteínas y otras moléculas.
+
